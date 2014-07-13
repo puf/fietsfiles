@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Draw OpenStreetMap</title>
+</head>
+<body>
+	<p id='legend'> </p>
+	<p>Align by <input type='radio' name='align'>time</input> <input type='radio' name='align'>distance</input></p>
+	<canvas id='speed' width='640' height='120'> </canvas>
+	<canvas id='map' width='1024' height='768'> </canvas>
+<script>
+if (!window.requestAnimationFrame) {
+	window.requestAnimationFrame = (function() {
+		return function( callback ){
+			window.setTimeout(callback, 1000 / 60);
+		};
+	})();
+}
+function getBoundingBox(features) {
+	var minLat, maxLat, minLon, maxLon;
+	features.forEach(function(f) {
+		if (f && f.geometry && (f.geometry.type == 'LineString' || f.geometry.type == 'Polygon')) {
+			f.geometry.coordinates[0].forEach(function(c) {
+				if (!minLon || c[0] < minLon) minLon = c[0];
+				if (!maxLon || c[0] > maxLon) maxLon = c[0];
+				if (!minLat || c[1] < minLat) minLat = c[1];
+				if (!maxLat || c[1] > maxLat) maxLat = c[1];
+			});
+		}
+		else if (f && f.geometry && f.geometry.type == 'Point') {
+			c = f.geometry.coordinates;
+			if (!minLon || c[0] < minLon) minLon = c[0];
+			if (!maxLon || c[0] > maxLon) maxLon = c[0];
+			if (!minLat || c[1] < minLat) minLat = c[1];
+			if (!maxLat || c[1] > maxLat) maxLat = c[1];
+		}
+		else {
+			console.log(f.id+' geometry.type = '+f.geometry.type);
+		}
+	});
+	// the above leads to a bounding box that is way too large (the JSON data isn't clipped), so we'll use known values for the moment
+	minLongitude = -77.49808;
+	minLatitude = 39.07741;
+	maxLongitude = -77.47992
+	maxLatitude = 39.09794;
+
+	return { minLatitude: minLat, maxLatitude: maxLat, minLongitude: minLon, maxLongitude: maxLon };
+}
+function drawWay(way, context, getPointForCoordinates) {
+	if (!way.geometry.type == 'LineString') debugger;
+	var coords =  way.geometry.coordinates;
+	context.beginPath();
+	coords.forEach(function(coordinates, i) {
+		var point = getPointForCoordinates(coordinates);
+		//console.log(coordinates[0]+','+coordinates[1]+'  =>  '+point.x+', '+point.y);
+		if (i == 0) {
+			context.moveTo(point.x,point.y);
+		} else {
+			context.lineTo(point.x,point.y);
+		}
+	});
+	context.lineWidth = 2;
+	context.strokeStyle = 'black';
+	context.stroke();	
+}
+function drawOpenStreetMap(geojson, canvas) {
+	//var nodes = xml.getElementsByTagName('node');
+	//var ways = xml.getElementsByTagName('way');
+	var features = geojson.features;
+	var ways = features.filter(function(f) { return f.geometry.type == 'LineString'; });
+	//console.log('There are '+features.length+' features, '+ways.length+' of which are LineStrings');
+	var bb = getBoundingBox(features);
+	//console.log(bb);
+	var scale = 25000; // TODO: calculate from map's bounding box and canvas size
+	var getPointForCoordinates = function(coordinates) {
+		//console.log('x='+scale+' * ('+bb.maxLongitude+' - '+coordinates[0]+') y='+scale+' *('+bb.maxLatitude+' - '+coordinates[1]+')');
+		// var x = scale * (bb.maxLatitude - parseFloat(node.getAttribute('lat')));
+		// var y = -1 * scale * (bb.maxLongitude - parseFloat(node.getAttribute('lon')));
+
+		var point = { 
+			x: scale * (coordinates[0] - bb.minLongitude), 
+			y: scale * (bb.maxLatitude - coordinates[1]) 
+		};
+		//console.log('x='+scale+' * ('+bb.maxLongitude+' - '+coordinates[0]+') = '+point.x+'\t\ty='+scale+' *('+bb.maxLatitude+' - '+coordinates[1]+') = '+point.y);
+
+		return point;
+	}
+	window.getPointForCoordinates = getPointForCoordinates; // TODO: refactor
+	var context = canvas.getContext('2d');
+	//ways = ways.filter(function(w) { return w.properties.alt_name == 'Leesburg Pike' || w.properties.name == 'Riverside Parkway' || w.properties.name == 'Riverpoint Drive' || (w.properties.name && w.properties.name.indexOf('Belmont') >= 0) });
+	//ways = ways.filter(function(w) { return w.properties.alt_name == 'Leesburg Pike' });
+	//console.log('Drawing '+ways.length+' ways');
+	for (var i=0; i < ways.length; i++) {
+		drawWay(ways[i], context, getPointForCoordinates);
+	}
+}
+function drawTCX(tcx, canvas, options) {
+	if (!options) options = {};
+	var trackpoints = tcx.TrainingCenterDatabase.Activities.Activity.Lap.Track.Trackpoint;
+	var color = (options && options.color) ? options.color : 'green';
+	var context = canvas.getContext('2d');
+	//console.log('There are '+trackpoints.length+' track points');
+	var offset = null;
+	//var image = new Image();
+	//image.src = 'http://www.vipdoc.nl/_internal/cimg!0/qftw7eb2kit3isas4mgdmnnmv2psepn';
+	trackpoints.forEach(function(tp) {
+		var point = tp.Position.point 
+
+		//context.drawImage(image, point.x, point.y, 80, 120);
+		var thisTime = new Date(tp.Time).getTime();
+		var isHighlight = (options.highlightOffsets && options.highlightOffsets.filter(function(highlightOffset) { return offset < highlightOffset && highlightOffset < tp.offset }).length > 0);
+		offset = tp.offset;
+
+		if (tp.label) {
+			context.font = '14px Sans-serif';
+			context.strokeStyle = 'white';
+			context.lineWidth = 2;
+			context.strokeText(tp.label, point.x, point.y);
+			context.fillStyle = color;
+			context.fillText(tp.label, point.x, point.y);
+			intervalStartTime = thisTime;
+		}
+		else {
+			context.beginPath();
+			context.arc(point.x, point.y, isHighlight ? 5 : 2, 0, 2 * Math.PI, false);
+			context.fillStyle = color;
+			context.fill();
+			context.lineWidth = 0.5;
+			context.strokeStyle = '#003300';
+			context.stroke();
+		}
+	});
+}
+
+function drawSpeed(tcx, canvas, options) {
+	var trackpoints = tcx.TrainingCenterDatabase.Activities.Activity.Lap.Track.Trackpoint;
+	var context = canvas.getContext('2d');
+
+	var scale_y = function(speed) { return (options.maxY - speed) * (canvas.height / options.maxY); };
+	var scale_x = function(i) { return i*2 };
+	// TODO: determine start time so we can normalize correctly (we now assume all TCX files use the same, constant interval between trackpoints)
+
+	context.beginPath();
+	trackpoints.forEach(function(tp, i) {
+		var speed = tp.Extensions.TPX.Speed;
+		if (i == 0) {
+			context.moveTo(scale_x(i), scale_y(speed));
+		} else {
+			context.lineTo(scale_x(i), scale_y(speed));
+		}
+	});
+
+	context.lineWidth = 1;
+	context.strokeStyle = options.color || 'green';
+	context.stroke();
+}
+
+function loadJSON(url,callbackName) {
+	var script = document.createElement('script');
+	script.setAttribute('src', url+'?callback='+callbackName);
+	document.head.appendChild(script);
+}
+
+function handleGistData(gistdata) {
+	var content = gistdata.data.files['Lansdowne.geojson'].content;
+	var geojson = JSON.parse(content)
+	console.log('geojson:'); console.log(geojson);
+
+    var legend = document.getElementById('legend');
+    content = gistdata.data.files['Jasper.tcx.json'].content;
+    var tcxs = [];
+    window.tcxs = tcxs;
+    tcxs.push(JSON.parse(content));
+
+    legend.innerHTML += "<div style='color: green'>Jasper</div>";
+    if (!gistdata.data.files['Frank.tcx.json'].truncated) {
+	    content = gistdata.data.files['Frank.tcx.json'].content;
+	    legend.innerHTML += "<div style='color: red'>Frank</div>";
+	    tcxs.push(JSON.parse(content));
+	}
+
+	var mapcanvas = document.getElementById('map');
+	var speedcanvas = document.getElementById('speed');
+
+	var colors = [ 'green', 'red', 'silver', 'blue' ];
+
+	// prerender the streetmap to an offscreen buffer
+	var geocanvas = document.createElement('canvas');
+	geocanvas.width = mapcanvas.width;;
+	geocanvas.height = mapcanvas.height;
+	drawOpenStreetMap(geojson, geocanvas);
+
+	var maxSpeed = Math.max.apply(null, tcxs.map(function(tcx) { return parseFloat(tcx.TrainingCenterDatabase.Activities.Activity.Lap.MaximumSpeed) }));
+	// the speed diagram is not highlighted (yet)
+	tcxs.forEach(function(tcx, i) {
+		drawSpeed(tcx, speedcanvas, { color: colors[i], maxY: maxSpeed }); 
+	});
+
+	var maxTotalTimeSeconds = Math.max.apply(null, tcxs.map(function(tcx) { return parseInt(tcx.TrainingCenterDatabase.Activities.Activity.Lap.TotalTimeSeconds) }));
+
+	// precalculate the lon/lat-to-point mapping, some offsets and marker positions
+	tcxs.forEach(function(tcx) {
+		var trackStartTime = new Date(tcx.TrainingCenterDatabase.Activities.Activity.Lap['@StartTime']).getTime();
+		var intervalStartTime = trackStartTime;
+		tcx.TrainingCenterDatabase.Activities.Activity.Lap.Track.Trackpoint.forEach(function(tp) {
+			var thisTime = new Date(tp.Time).getTime();
+			tp.offset = Math.round((thisTime - trackStartTime) / 1000); // offset from start of track
+			tp.intervalOffset = Math.round((thisTime - intervalStartTime) / 1000); // offset from start of interval
+			if (tp.intervalOffset > 2*60) {
+				tp.label = Math.round(tp.offset/60)+'m';
+				intervalStartTime = thisTime; // TODO: or should it be intervalStartTime += 2 minutes?
+			}
+			tp.Position.point = getPointForCoordinates([tp.Position.LongitudeDegrees, tp.Position.LatitudeDegrees]);
+		});
+	});
+
+
+	var highlightTimeSeconds = 1;
+	var totalTimeRendering = 0;
+
+	function render() {
+		var startRenderLoop = Date.now();
+
+		mapcanvas.getContext('2d').clearRect(0,0, mapcanvas.width, mapcanvas.height);
+		//drawOpenStreetMap(geojson, mapcanvas);
+		mapcanvas.getContext('2d').drawImage(geocanvas, 0, 0);
+		tcxs.forEach(function(tcx, i) {
+			drawTCX(tcx, mapcanvas, { color: colors[i], highlightOffsets: [ highlightTimeSeconds ] }); 
+		});
+		totalTimeRendering += Date.now() - startRenderLoop;
+
+		highlightTimeSeconds++;
+		if (highlightTimeSeconds > maxTotalTimeSeconds) {
+			console.log('totalTimeRendering='+totalTimeRendering+' #frames='+highlightTimeSeconds+' avg frame render time='+(totalTimeRendering/highlightTimeSeconds));
+		}
+		else {
+			requestAnimationFrame(render);
+		}
+	};
+	render();
+}
+
+loadJSON('https://api.github.com/gists/27407ce95522cd8b9d96/Lansdowne.geojson', 'handleGistData');
+
+</script>
+</body>
+</html>
