@@ -69,6 +69,7 @@ function drawOpenStreetMap(geojson, canvas) {
 	var features = geojson.features;
 	var ways = features.filter(function(f) { return f.geometry.type == 'LineString'; });
 	//console.log('There are '+features.length+' features, '+ways.length+' of which are LineStrings');
+	// TODO: use the bounding box of the TCX instead of the map
 	var bb = getBoundingBox(features);
 	//console.log(bb);
 	var scale = 25000; // TODO: calculate from map's bounding box and canvas size
@@ -221,6 +222,7 @@ function handleGistData(gistdata) {
 	function render() {
 		var startRenderLoop = Date.now();
 
+		// TODO: only update the part of the map/tcx that is updated in this frame
 		mapcanvas.getContext('2d').clearRect(0,0, mapcanvas.width, mapcanvas.height);
 		//drawOpenStreetMap(geojson, mapcanvas);
 		mapcanvas.getContext('2d').drawImage(geocanvas, 0, 0);
