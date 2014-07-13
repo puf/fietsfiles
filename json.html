@@ -16,36 +16,6 @@ if (!window.requestAnimationFrame) {
 		};
 	})();
 }
-function getBoundingBox(features) {
-	var minLat, maxLat, minLon, maxLon;
-	features.forEach(function(f) {
-		if (f && f.geometry && (f.geometry.type == 'LineString' || f.geometry.type == 'Polygon')) {
-			f.geometry.coordinates[0].forEach(function(c) {
-				if (!minLon || c[0] < minLon) minLon = c[0];
-				if (!maxLon || c[0] > maxLon) maxLon = c[0];
-				if (!minLat || c[1] < minLat) minLat = c[1];
-				if (!maxLat || c[1] > maxLat) maxLat = c[1];
-			});
-		}
-		else if (f && f.geometry && f.geometry.type == 'Point') {
-			c = f.geometry.coordinates;
-			if (!minLon || c[0] < minLon) minLon = c[0];
-			if (!maxLon || c[0] > maxLon) maxLon = c[0];
-			if (!minLat || c[1] < minLat) minLat = c[1];
-			if (!maxLat || c[1] > maxLat) maxLat = c[1];
-		}
-		else {
-			console.log(f.id+' geometry.type = '+f.geometry.type);
-		}
-	});
-	// the above leads to a bounding box that is way too large (the JSON data isn't clipped), so we'll use known values for the moment
-	minLongitude = -77.49808;
-	minLatitude = 39.07741;
-	maxLongitude = -77.47992
-	maxLatitude = 39.09794;
-
-	return { minLatitude: minLat, maxLatitude: maxLat, minLongitude: minLon, maxLongitude: maxLon };
-}
 function drawWay(way, context, getPointForCoordinates) {
 	if (!way.geometry.type == 'LineString') debugger;
 	var coords =  way.geometry.coordinates;
@@ -63,34 +33,10 @@ function drawWay(way, context, getPointForCoordinates) {
 	context.strokeStyle = 'black';
 	context.stroke();	
 }
-function drawOpenStreetMap(geojson, canvas) {
-	//var nodes = xml.getElementsByTagName('node');
-	//var ways = xml.getElementsByTagName('way');
+function drawOpenStreetMap(geojson, canvas, getPointForCoordinates) {
 	var features = geojson.features;
 	var ways = features.filter(function(f) { return f.geometry.type == 'LineString'; });
-	//console.log('There are '+features.length+' features, '+ways.length+' of which are LineStrings');
-	// TODO: use the bounding box of the TCX instead of the map
-	var bb = getBoundingBox(features);
-	//console.log(bb);
-	var scale = 25000; // TODO: calculate from map's bounding box and canvas size
-	var getPointForCoordinates = function(coordinates) {
-		//console.log('x='+scale+' * ('+bb.maxLongitude+' - '+coordinates[0]+') y='+scale+' *('+bb.maxLatitude+' - '+coordinates[1]+')');
-		// var x = scale * (bb.maxLatitude - parseFloat(node.getAttribute('lat')));
-		// var y = -1 * scale * (bb.maxLongitude - parseFloat(node.getAttribute('lon')));
-
-		var point = { 
-			x: scale * (coordinates[0] - bb.minLongitude), 
-			y: scale * (bb.maxLatitude - coordinates[1]) 
-		};
-		//console.log('x='+scale+' * ('+bb.maxLongitude+' - '+coordinates[0]+') = '+point.x+'\t\ty='+scale+' *('+bb.maxLatitude+' - '+coordinates[1]+') = '+point.y);
-
-		return point;
-	}
-	window.getPointForCoordinates = getPointForCoordinates; // TODO: refactor
 	var context = canvas.getContext('2d');
-	//ways = ways.filter(function(w) { return w.properties.alt_name == 'Leesburg Pike' || w.properties.name == 'Riverside Parkway' || w.properties.name == 'Riverpoint Drive' || (w.properties.name && w.properties.name.indexOf('Belmont') >= 0) });
-	//ways = ways.filter(function(w) { return w.properties.alt_name == 'Leesburg Pike' });
-	//console.log('Drawing '+ways.length+' ways');
 	for (var i=0; i < ways.length; i++) {
 		drawWay(ways[i], context, getPointForCoordinates);
 	}
@@ -100,10 +46,7 @@ function drawTCX(tcx, canvas, options) {
 	var trackpoints = tcx.TrainingCenterDatabase.Activities.Activity.Lap.Track.Trackpoint;
 	var color = (options && options.color) ? options.color : 'green';
 	var context = canvas.getContext('2d');
-	//console.log('There are '+trackpoints.length+' track points');
 	var offset = null;
-	//var image = new Image();
-	//image.src = 'http://www.vipdoc.nl/_internal/cimg!0/qftw7eb2kit3isas4mgdmnnmv2psepn';
 	trackpoints.forEach(function(tp) {
 		var point = tp.Position.point 
 
@@ -180,16 +123,43 @@ function handleGistData(gistdata) {
 	    tcxs.push(JSON.parse(content));
 	}
 
+	// determine the bounding box over all TCX files
+	var positionExtractor = function(op, prop) {
+		return op.apply(null, 
+			tcxs.map(function(tcx) { 
+				return op.apply(null, 
+					tcx.TrainingCenterDatabase.Activities.Activity.Lap.Track.Trackpoint.map(function(tp) { return tp.Position[prop]; })) }
+			));
+	}
+	var margin = 0.0009; // 1 degree = (slightly over) 111 km, so 0.009 degree is 1km, so 0.0009 degree is about 100 meters.
+	var boundingBox = { 
+		minLongitude: positionExtractor(Math.min, 'LongitudeDegrees') - margin, 
+		maxLongitude: positionExtractor(Math.max, 'LongitudeDegrees') + margin,
+		minLatitude: positionExtractor(Math.min, 'LatitudeDegrees') - margin, 
+		maxLatitude: positionExtractor(Math.max, 'LatitudeDegrees') + margin
+	};
+	console.log(boundingBox);
+
 	var mapcanvas = document.getElementById('map');
 	var speedcanvas = document.getElementById('speed');
+
+	var scale = Math.min(mapcanvas.width/(boundingBox.maxLongitude-boundingBox.minLongitude), mapcanvas.height/(boundingBox.maxLatitude-boundingBox.minLatitude));
+	var getPointForCoordinates = function(coordinates) {
+		// TODO: we could probably get closer by centering the bounding box in the available space
+		var point = { 
+			x: scale * (coordinates[0] - boundingBox.minLongitude), 
+			y: scale * (boundingBox.maxLatitude - coordinates[1]) 
+		};
+		return point;
+	}
 
 	var colors = [ 'green', 'red', 'silver', 'blue' ];
 
 	// prerender the streetmap to an offscreen buffer
 	var geocanvas = document.createElement('canvas');
-	geocanvas.width = mapcanvas.width;;
+	geocanvas.width = mapcanvas.width;
 	geocanvas.height = mapcanvas.height;
-	drawOpenStreetMap(geojson, geocanvas);
+	drawOpenStreetMap(geojson, geocanvas, getPointForCoordinates);
 
 	var maxSpeed = Math.max.apply(null, tcxs.map(function(tcx) { return parseFloat(tcx.TrainingCenterDatabase.Activities.Activity.Lap.MaximumSpeed) }));
 	// the speed diagram is not highlighted (yet)
