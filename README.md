@@ -3,7 +3,7 @@ fietsfiles
 
 Experiments with GPX, TCX and similar files that are gathered from bicycle rides.
 
-For a live demo, follow this link: https://rawgit.com/puf/fietsfiles/master/json.html
+[LIVE DEMO](https://rawgit.com/puf/fietsfiles/master/json.html)
 
 json.html
 ---
