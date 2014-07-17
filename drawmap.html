@@ -1,9 +1,15 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Draw OpenStreetMap</title>
+<title>Draw Map (geojson and tcx.json)</title>
 </head>
 <body>
+	<p>
+	On this page you see a (b&w) map of an area and a race between two bicyclists. 
+	The map is drawn from a geojson file that was exported from OpenStreetMap. 
+	The bicycle rides are drawn from two .tcx.json files (a custom format converted from the corresponding .tcx).
+	Both riders actually performed their race on a BKool stationary bike at different times.
+	</p>
 	<p id='legend'> </p>
 	<p>Align by <input type='radio' name='align'>time</input> <input type='radio' name='align'>distance</input></p>
 	<canvas id='speed' width='640' height='120'> </canvas>
